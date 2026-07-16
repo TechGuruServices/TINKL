@@ -1,0 +1,41 @@
+# TINKL — Cloudflare Pages headers
+
+# Service worker must have this scope to work correctly
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /
+
+# HTML — never cache, always fresh
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=()
+
+# Root
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+
+# Manifest — short cache, needs to stay fresh for install prompts
+/manifest.webmanifest
+  Cache-Control: public, max-age=86400
+  Content-Type: application/manifest+json
+
+# Icons — long cache, they don't change often
+/tinkl-logo*.png
+  Cache-Control: public, max-age=2592000, immutable
+
+/android-chrome-*.png
+  Cache-Control: public, max-age=2592000, immutable
+
+/apple-touch-icon-*.png
+  Cache-Control: public, max-age=2592000, immutable
+
+/favicon-*.png
+  Cache-Control: public, max-age=2592000, immutable
+
+/favicon.ico
+  Cache-Control: public, max-age=2592000, immutable

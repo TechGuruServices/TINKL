@@ -1,0 +1,27 @@
+# Wrangler cache and environment
+.wrangler
+.dev.vars
+
+# Zip backups
+*.zip
+
+# VS Code workspace settings
+*.code-workspace
+.vscode/
+
+# Legacy and temp files/folders
+files-FIXED/
+manifest-icon-files/
+tinkl-glass-icons/
+tinkl-screenshots/
+tinkl-sync-complete/
+index2.html
+snippet_icons.js
+app.html
+
+# Large raw asset files not used by deployed app
+logo-tinkl.PNG
+tinkl-logo-paw.png
+
+# Local logs
+*.log

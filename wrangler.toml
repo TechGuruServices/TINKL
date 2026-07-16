@@ -1,0 +1,18 @@
+name = "tinkl-sync"
+main = "worker/worker.js"
+compatibility_date = "2024-11-01"
+
+# Durable Object binding — TINKL_BACKUP is the name used in worker.js (env.TINKL_BACKUP)
+[[durable_objects.bindings]]
+name = "TINKL_BACKUP"
+class_name = "TinklBackup"
+
+# SQLite-backed migration — required for Durable Objects on the free plan.
+# new_sqlite_classes provisions SQLite storage per DO instance (vs legacy KV).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TinklBackup"]
+
+# API_SECRET is NOT set here — set it as an encrypted secret instead:
+#   npx wrangler secret put API_SECRET
+# This keeps it out of source control and off of `wrangler.toml`.
