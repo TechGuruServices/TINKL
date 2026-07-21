@@ -2873,7 +2873,126 @@
       groom: { label: 'Groom', emoji: '✂️', icon: 'scissors', cls: 'ic-brand' },
     };
 
-    /* ================ Data ================ */
+    /* ================ Vaccine Schedule Reference ================ */
+    // Rule-based, deterministic schedule data reflecting standard,
+    // widely-published veterinary guidance (AAHA canine vaccination
+    // guidelines; AAFP feline vaccination guidelines). This is general
+    // reference information, not a prescription — the pet's actual vet
+    // always has the final say based on regional disease risk, vaccine
+    // brand/label, and the individual animal's health.
+    //
+    // seriesIntervalWeeks: spacing between doses while still a puppy/kitten
+    // initialAgeWeeksMax: age by which the puppy/kitten series should be done
+    // boosterAfterFirstMonths: booster timing after the FIRST-EVER adult dose
+    // adultIntervalMonths: standard re-vaccination interval once established
+    const VACCINE_SCHEDULES = [
+      {
+        id: 'rabies_dog', name: 'Rabies', species: 'dog', core: true,
+        seriesIntervalWeeks: null, initialAgeWeeksMin: 12, initialAgeWeeksMax: 16,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 36,
+        info: 'Core. First dose at 12–16 weeks old, booster 1 year later, then typically every 3 years (varies by vaccine label & local/state law).'
+      },
+      {
+        id: 'dhpp_dog', name: 'DHPP (Distemper / Parvo Combo)', species: 'dog', core: true,
+        seriesIntervalWeeks: 3.5, initialAgeWeeksMin: 6, initialAgeWeeksMax: 16,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 36,
+        info: 'Core. Puppy series every 3–4 weeks from 6 to 16 weeks old, booster 1 year after the last puppy dose, then every 3 years.'
+      },
+      {
+        id: 'bordetella_dog', name: 'Bordetella (Kennel Cough)', species: 'dog', core: false,
+        seriesIntervalWeeks: null, initialAgeWeeksMin: 8, initialAgeWeeksMax: null,
+        boosterAfterFirstMonths: 6, adultIntervalMonths: 6,
+        info: 'Non-core. Recommended for dogs boarding, in daycare, or socializing often. Re-vaccinate every 6–12 months.'
+      },
+      {
+        id: 'lepto_dog', name: 'Leptospirosis', species: 'dog', core: false,
+        seriesIntervalWeeks: 3, initialAgeWeeksMin: 8, initialAgeWeeksMax: null,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 12,
+        info: 'Non-core, increasingly recommended broadly. Initial 2 doses 2–4 weeks apart, then annually.'
+      },
+      {
+        id: 'influenza_dog', name: 'Canine Influenza (H3N2/H3N8)', species: 'dog', core: false,
+        seriesIntervalWeeks: 3, initialAgeWeeksMin: 8, initialAgeWeeksMax: null,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 12,
+        info: 'Non-core. Initial 2 doses 2–4 weeks apart, then annually. Recommended for social/boarding dogs.'
+      },
+      {
+        id: 'lyme_dog', name: 'Lyme Disease', species: 'dog', core: false,
+        seriesIntervalWeeks: 3, initialAgeWeeksMin: 8, initialAgeWeeksMax: null,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 12,
+        info: 'Non-core, risk-based for tick-endemic areas. Initial 2 doses 2–4 weeks apart, then annually.'
+      },
+      {
+        id: 'fvrcp_cat', name: 'FVRCP (Feline Distemper Combo)', species: 'cat', core: true,
+        seriesIntervalWeeks: 3.5, initialAgeWeeksMin: 6, initialAgeWeeksMax: 16,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 36,
+        info: 'Core. Kitten series every 3–4 weeks from 6 to 16 weeks old, booster 1 year after the last kitten dose, then every 3 years.'
+      },
+      {
+        id: 'rabies_cat', name: 'Rabies', species: 'cat', core: true,
+        seriesIntervalWeeks: null, initialAgeWeeksMin: 12, initialAgeWeeksMax: 16,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 12,
+        info: 'Core. First dose at 12–16 weeks old, booster 1 year later, then annually or every 3 years depending on vaccine label.'
+      },
+      {
+        id: 'felv_cat', name: 'FeLV (Feline Leukemia)', species: 'cat', core: false,
+        seriesIntervalWeeks: 3.5, initialAgeWeeksMin: 8, initialAgeWeeksMax: 16,
+        boosterAfterFirstMonths: 12, adultIntervalMonths: 12,
+        info: 'Core for kittens (per AAFP), risk-based for adults. Initial 2 doses 3–4 weeks apart, then annually if at-risk (outdoor/multi-cat).'
+      },
+      {
+        id: 'custom', name: 'Other / Custom vaccine', species: 'both', core: false,
+        seriesIntervalWeeks: null, initialAgeWeeksMin: null, initialAgeWeeksMax: null,
+        boosterAfterFirstMonths: null, adultIntervalMonths: null,
+        info: 'Set your own schedule — enter the next due date manually based on your vet\'s recommendation.'
+      },
+    ];
+    function vaccinesForSpecies(species) {
+      return VACCINE_SCHEDULES.filter(v => v.species === species || v.species === 'both');
+    }
+    function findVaccineDef(id) { return VACCINE_SCHEDULES.find(v => v.id === id); }
+
+    // Suggests a next-due date from the last-given date, using the pet's
+    // age (if birthday is known) to decide whether this is still part of
+    // the puppy/kitten series or an established-adult booster. Always
+    // returns a rationale string so the suggestion is never a black box.
+    function suggestVaccineNextDue(vaxDef, lastGivenStr, petBirthday) {
+      if (!vaxDef || !lastGivenStr) return null;
+      const lastGiven = new Date(lastGivenStr);
+      if (Number.isNaN(lastGiven.getTime())) return null;
+      if (vaxDef.id === 'custom') return null;
+
+      let ageWeeksAtDose = null;
+      if (petBirthday) {
+        const bday = new Date(petBirthday);
+        if (!Number.isNaN(bday.getTime())) ageWeeksAtDose = (lastGiven - bday) / (7 * 86400000);
+      }
+
+      const stillInSeries = vaxDef.seriesIntervalWeeks && ageWeeksAtDose !== null &&
+        ageWeeksAtDose < (vaxDef.initialAgeWeeksMax || 16) + 2; // +2wk grace window
+
+      if (stillInSeries) {
+        const next = new Date(lastGiven.getTime() + vaxDef.seriesIntervalWeeks * 7 * 86400000);
+        return {
+          date: next.toISOString().slice(0, 10),
+          rationale: `Still within the puppy/kitten series window — next dose suggested ${vaxDef.seriesIntervalWeeks} weeks later, per standard protocol.`
+        };
+      }
+      // Otherwise treat as an adult / established booster.
+      // If we can tell this is the pet's very first-ever adult dose (age just
+      // past the series window), use the "1 year after first dose" rule;
+      // otherwise use the standard ongoing re-vaccination interval.
+      const justFinishedSeries = vaxDef.seriesIntervalWeeks && ageWeeksAtDose !== null &&
+        ageWeeksAtDose < (vaxDef.initialAgeWeeksMax || 16) + 12;
+      const months = justFinishedSeries ? vaxDef.boosterAfterFirstMonths : vaxDef.adultIntervalMonths;
+      const next = new Date(lastGiven); next.setMonth(next.getMonth() + months);
+      return {
+        date: next.toISOString().slice(0, 10),
+        rationale: justFinishedSeries
+          ? `First adult booster — suggested ${months} month${months !== 1 ? 's' : ''} after this dose, per standard protocol.`
+          : `Standard re-vaccination interval for this vaccine is every ${months >= 12 ? (months / 12) + ' year' + (months > 12 ? 's' : '') : months + ' months'}.`
+      };
+    }
     async function loadAll() {
       const [pets, logs, reminders, weights, meds, vaccinations, notes] = await Promise.all([
         DB.all('pets'), DB.all('logs'), DB.all('reminders'), DB.all('weights'),
@@ -3546,16 +3665,21 @@
     <input type="file" id="photoInCamera" accept="image/*" capture="environment" hidden />
     <div class="form-row"><label>Name *</label><input id="pName" value="${pet ? U.esc(pet.name) : ''}" placeholder="Buddy" /></div>
     <div class="form-grid">
-      <div class="form-row"><label>Breed</label><select id="pBreed">
-        <option value="">— Choose a breed or enter custom —</option>
-        ${['Labrador Retriever','Golden Retriever','German Shepherd','French Bulldog','Poodle','Bulldog','Rottweiler','Beagle','Dachshund','German Shorthaired Pointer','Pembroke Welsh Corgi','Australian Shepherd','Yorkshire Terrier','Boxer','Great Dane','Siberian Husky','Cavalier King Charles Spaniel','Doberman Pinscher','Miniature Schnauzer','Shih Tzu','Border Collie','Boston Terrier','Pomeranian','Havanese','Chihuahua','Shetland Sheepdog','Bernese Mountain Dog','Brittany','English Springer Spaniel','Pug','Cocker Spaniel','Mixed breed','Domestic Shorthair Cat','Domestic Longhair Cat','Maine Coon','Siamese','Persian','Ragdoll','British Shorthair','Bengal','Sphynx'].map(b => `<option value="${b}" ${pet?.breed === b ? 'selected' : ''}>${b}</option>`).join('')}
+      <div class="form-row"><label>Species *</label><select id="pSpecies">
+        <option value="dog" ${(!pet || pet.species === 'dog') ? 'selected' : ''}>Dog</option>
+        <option value="cat" ${pet?.species === 'cat' ? 'selected' : ''}>Cat</option>
+        <option value="other" ${pet?.species === 'other' ? 'selected' : ''}>Other</option>
       </select></div>
       <div class="form-row"><label>Gender</label><select id="pGender"><option value="">—</option><option ${pet?.gender === 'male' ? 'selected' : ''}>male</option><option ${pet?.gender === 'female' ? 'selected' : ''}>female</option></select></div>
     </div>
     <div class="form-grid">
-      <div class="form-row"><label>Birthday</label><input type="date" id="pBirth" value="${pet?.birthday || ''}" /></div>
+      <div class="form-row"><label>Breed</label><select id="pBreed">
+        <option value="">— Choose a breed or enter custom —</option>
+        ${['Labrador Retriever','Golden Retriever','German Shepherd','French Bulldog','Poodle','Bulldog','Rottweiler','Beagle','Dachshund','German Shorthaired Pointer','Pembroke Welsh Corgi','Australian Shepherd','Yorkshire Terrier','Boxer','Great Dane','Siberian Husky','Cavalier King Charles Spaniel','Doberman Pinscher','Miniature Schnauzer','Shih Tzu','Border Collie','Boston Terrier','Pomeranian','Havanese','Chihuahua','Shetland Sheepdog','Bernese Mountain Dog','Brittany','English Springer Spaniel','Pug','Cocker Spaniel','Mixed breed','Domestic Shorthair Cat','Domestic Longhair Cat','Maine Coon','Siamese','Persian','Ragdoll','British Shorthair','Bengal','Sphynx'].map(b => `<option value="${b}" ${pet?.breed === b ? 'selected' : ''}>${b}</option>`).join('')}
+      </select></div>
       <div class="form-row" style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><label style="grid-column:1/-1">Weight</label><input type="number" step="0.1" id="pWeight" placeholder="120" /><select id="pWeightUnit"><option value="lbs" selected>lbs</option><option value="kg">kg</option></select></div>
     </div>
+    <div class="form-row"><label>Birthday</label><input type="date" id="pBirth" value="${pet?.birthday || ''}" /></div>
     <div class="form-row"><label>Pet parent name</label><input id="pParent" value="${pet ? U.esc(pet.parent || '') : ''}" placeholder="Your name" /></div>
     <div class="form-row"><label>Microchip #</label><input id="pChip" value="${pet ? U.esc(pet.chip || '') : ''}" placeholder="Optional" /></div>
     <div class="form-row"><label>Notes</label><textarea id="pNotes" placeholder="Allergies, quirks, favourites…">${pet ? U.esc(pet.notes || '') : ''}</textarea></div>
@@ -3601,6 +3725,7 @@
             const weightKg = weightVal ? U.toKg(U.safeNum(weightVal), weightUnit) : '';
             const data = {
               id: pet?.id || U.id(), name,
+              species: b.querySelector('#pSpecies').value,
               breed: b.querySelector('#pBreed').value.trim(),
               gender: b.querySelector('#pGender').value,
               birthday: b.querySelector('#pBirth').value,
@@ -3696,7 +3821,7 @@
         const overdue = nextDue && nextDue < Date.now();
         const dueTxt = nextDue ? ` · ${overdue ? '⚠️ overdue' : 'next dose'} ${U.fmtDate(nextDue)}` : '';
         return `
-    <div class="feed-item">
+    <div class="feed-item" data-edit-med="${m.id}" style="cursor:pointer">
       <div class="feed-ic ic-med">${Icon('pill')}</div>
       <div class="feed-body">
         <div class="feed-title">${U.esc(m.name)} ${m.dose ? '· ' + U.esc(m.dose) : ''}</div>
@@ -3706,7 +3831,12 @@
     </div>
   `;
       }).join('') : emptyRow('No medications yet');
-      document.querySelectorAll('[data-del-med]').forEach(b => b.onclick = async () => {
+      document.querySelectorAll('[data-edit-med]').forEach(row => row.onclick = (e) => {
+        if (e.target.closest('[data-del-med]')) return;
+        openMedModal(S.meds.find(m => m.id === row.dataset.editMed));
+      });
+      document.querySelectorAll('[data-del-med]').forEach(b => b.onclick = async (e) => {
+        e.stopPropagation();
         if (await U.confirm('Remove medication?', 'This removes the medication entry.')) {
           await DB.del('meds', b.dataset.delMed); await loadAll(); renderHealth();
         }
@@ -3718,17 +3848,23 @@
         const due = v.nextDue ? new Date(v.nextDue) : null;
         const days = due ? Math.ceil((due - Date.now()) / 86400000) : null;
         const tag = days == null ? '' : days < 0 ? `<div class="tag due">Overdue</div>` : days < 30 ? `<div class="tag warn">Due in ${days}d</div>` : `<div class="tag ok">${days}d</div>`;
-        return `<div class="feed-item">
+        const coreTag = v.core ? '<span style="font-size:0.68rem;color:var(--brand);font-weight:600">CORE</span> · ' : '';
+        return `<div class="feed-item" data-edit-vac="${v.id}" style="cursor:pointer">
       <div class="feed-ic ic-food">${Icon('syringe')}</div>
       <div class="feed-body">
         <div class="feed-title">${U.esc(v.name)}</div>
-        <div class="feed-meta">Last: ${v.lastGiven ? U.fmtDate(v.lastGiven) : '—'}${v.nextDue ? ' · Next: ' + U.fmtDate(v.nextDue) : ''}</div>
+        <div class="feed-meta">${coreTag}Last: ${v.lastGiven ? U.fmtDate(v.lastGiven) : '—'}${v.nextDue ? ' · Next: ' + U.fmtDate(v.nextDue) : ''}</div>
       </div>
       ${tag}
       <button class="feed-del" data-del-vac="${v.id}">${Icon('trash')}</button>
     </div>`;
       }).join('') : emptyRow('No vaccinations tracked');
-      document.querySelectorAll('[data-del-vac]').forEach(b => b.onclick = async () => {
+      document.querySelectorAll('[data-edit-vac]').forEach(row => row.onclick = (e) => {
+        if (e.target.closest('[data-del-vac]')) return;
+        openVacModal(S.vaccinations.find(v => v.id === row.dataset.editVac));
+      });
+      document.querySelectorAll('[data-del-vac]').forEach(b => b.onclick = async (e) => {
+        e.stopPropagation();
         if (await U.confirm('Remove vaccination?', 'This removes the vaccination record.')) {
           await DB.del('vaccinations', b.dataset.delVac); await loadAll(); renderHealth();
         }
@@ -3743,7 +3879,7 @@
         b.onclick = () => { S.settings.weightUnit = b.dataset.wunit; saveSettings(); renderHealth(); };
       });
       document.getElementById('weightList').innerHTML = ws.length ? [...ws].reverse().slice(0, 6).map(w => `
-    <div class="feed-item">
+    <div class="feed-item" data-edit-w="${w.id}" style="cursor:pointer">
       <div class="feed-ic ic-brand">${Icon('scale')}</div>
       <div class="feed-body">
         <div class="feed-title">${U.fmtWeight(U.toKg(w.value, w.unit), wu)}</div>
@@ -3752,14 +3888,19 @@
       <button class="feed-del" data-del-w="${w.id}">${Icon('trash')}</button>
     </div>
   `).join('') : emptyRow('No weight entries');
-      document.querySelectorAll('[data-del-w]').forEach(b => b.onclick = async () => {
+      document.querySelectorAll('[data-edit-w]').forEach(row => row.onclick = (e) => {
+        if (e.target.closest('[data-del-w]')) return;
+        openWeightModal(S.weights.find(w => w.id === row.dataset.editW));
+      });
+      document.querySelectorAll('[data-del-w]').forEach(b => b.onclick = async (e) => {
+        e.stopPropagation();
         await DB.del('weights', b.dataset.delW); await loadAll(); renderHealth();
       });
 
       // Notes
       const notes = S.notes.filter(n => n.petId === S.activePetId).sort((a, b) => b.ts - a.ts);
       document.getElementById('noteList').innerHTML = notes.length ? notes.map(n => `
-    <div class="feed-item">
+    <div class="feed-item" data-edit-n="${n.id}" style="cursor:pointer">
       <div class="feed-ic ic-brand">${Icon('note')}</div>
       <div class="feed-body">
         <div class="feed-title">${U.esc(n.title)}</div>
@@ -3768,7 +3909,12 @@
       <button class="feed-del" data-del-n="${n.id}">${Icon('trash')}</button>
     </div>
   `).join('') : emptyRow('No notes or vet visits logged');
-      document.querySelectorAll('[data-del-n]').forEach(b => b.onclick = async () => {
+      document.querySelectorAll('[data-edit-n]').forEach(row => row.onclick = (e) => {
+        if (e.target.closest('[data-del-n]')) return;
+        openNoteModal(S.notes.find(n => n.id === row.dataset.editN));
+      });
+      document.querySelectorAll('[data-del-n]').forEach(b => b.onclick = async (e) => {
+        e.stopPropagation();
         await DB.del('notes', b.dataset.delN); await loadAll(); renderHealth();
       });
     }
@@ -3801,109 +3947,201 @@
       });
     }
 
-    function openMedModal() {
+    function openMedModal(med) {
+      const edit = !!med;
       openModal({
-        title: 'Add medication',
+        title: edit ? 'Edit medication' : 'Add medication',
         body: `
-      <div class="form-row"><label>Medication name *</label><input id="mName" placeholder="Apoquel" /></div>
+      <div class="form-row"><label>Medication name *</label><input id="mName" value="${edit ? U.esc(med.name || '') : ''}" placeholder="Apoquel" /></div>
       <div class="form-grid">
-        <div class="form-row"><label>Dose</label><input id="mDose" placeholder="5mg" /></div>
-        <div class="form-row"><label>Schedule</label><input id="mSched" placeholder="1x daily, morning" /></div>
+        <div class="form-row"><label>Dose</label><input id="mDose" value="${edit ? U.esc(med.dose || '') : ''}" placeholder="5mg" /></div>
+        <div class="form-row"><label>Schedule</label><input id="mSched" value="${edit ? U.esc(med.schedule || '') : ''}" placeholder="1x daily, morning" /></div>
       </div>
       <div class="form-grid">
-        <div class="form-row"><label>Started</label><input type="date" id="mStart" value="${new Date().toISOString().slice(0, 10)}" /></div>
-        <div class="form-row"><label>Until (optional)</label><input type="date" id="mUntil" /></div>
+        <div class="form-row"><label>Started</label><input type="date" id="mStart" value="${med?.start || new Date().toISOString().slice(0, 10)}" /></div>
+        <div class="form-row"><label>Until (optional)</label><input type="date" id="mUntil" value="${med?.until || ''}" /></div>
       </div>
-      <div class="form-row"><label>Repeats every (days, optional)</label><input type="number" min="1" step="1" id="mInterval" placeholder="e.g. 30 for a monthly flea/tick dose" /></div>
+      <div class="form-row"><label>Repeats every (days, optional)</label><input type="number" min="1" step="1" id="mInterval" value="${med?.intervalDays || ''}" placeholder="e.g. 30 for a monthly flea/tick dose" /></div>
     `,
-        actions: [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
+        actions: edit
+          ? [{ label: 'Cancel', v: false }, { label: 'Delete', kind: 'danger', v: 'delete' }, { label: 'Save', kind: 'primary', v: true }]
+          : [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
         onAction: async (v, close, b) => {
           if (!v) return close();
+          if (v === 'delete') {
+            if (await U.confirm('Remove medication?', 'This removes the medication entry.')) {
+              await DB.del('meds', med.id); await loadAll(); renderHealth(); close();
+            }
+            return;
+          }
           const name = b.querySelector('#mName').value.trim();
           if (!name || !S.activePetId) return U.toast('Name & active pet required', 'error');
           await DB.put('meds', {
-            id: U.id(), petId: S.activePetId, name,
+            id: med?.id || U.id(), petId: S.activePetId, name,
             dose: b.querySelector('#mDose').value.trim(),
             schedule: b.querySelector('#mSched').value.trim(),
             start: b.querySelector('#mStart').value,
             until: b.querySelector('#mUntil').value,
             intervalDays: b.querySelector('#mInterval').value ? U.safeNum(b.querySelector('#mInterval').value) : null,
-            createdAt: Date.now()
+            createdAt: med?.createdAt || Date.now()
           });
-          await loadAll(); renderHealth(); close(); U.toast('Medication added', 'success');
+          await loadAll(); renderHealth(); close(); U.toast(edit ? 'Medication updated' : 'Medication added', 'success');
         }
       });
     }
-    function openVacModal() {
+    function openVacModal(vac) {
+      const edit = !!vac;
+      const pet = S.pets.find(p => p.id === S.activePetId);
+      const species = pet?.species || 'dog';
+      const options = vaccinesForSpecies(species);
+      const currentDefId = vac ? (VACCINE_SCHEDULES.find(v => v.name === vac.name)?.id || 'custom') : options[0]?.id;
+
       openModal({
-        title: 'Add vaccination',
+        title: edit ? 'Edit vaccination' : 'Add vaccination',
         body: `
-      <div class="form-row"><label>Vaccine name *</label><input id="vName" placeholder="Rabies" /></div>
-      <div class="form-grid">
-        <div class="form-row"><label>Last given</label><input type="date" id="vLast" value="${new Date().toISOString().slice(0, 10)}" /></div>
-        <div class="form-row"><label>Next due</label><input type="date" id="vNext" /></div>
+      <div class="form-row"><label>Vaccine *</label><select id="vDef">
+        ${options.map(o => `<option value="${o.id}" ${o.id === currentDefId ? 'selected' : ''}>${o.name}${o.core ? ' (core)' : ''}</option>`).join('')}
+      </select></div>
+      <div class="form-row" id="vCustomNameRow" style="display:none">
+        <label>Custom vaccine name *</label><input id="vCustomName" value="${edit && currentDefId === 'custom' ? U.esc(vac.name || '') : ''}" placeholder="e.g. Feline FIP" />
       </div>
-      <div class="form-row"><label>Vet / clinic</label><input id="vVet" placeholder="Dr. Smith" /></div>
+      <div class="form-row" id="vInfoRow" style="background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:0.8rem;color:var(--text-2);line-height:1.5"></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Last given</label><input type="date" id="vLast" value="${vac?.lastGiven || new Date().toISOString().slice(0, 10)}" /></div>
+        <div class="form-row"><label>Next due</label><input type="date" id="vNext" value="${vac?.nextDue || ''}" /></div>
+      </div>
+      <div class="form-row" id="vSuggestRow" style="font-size:0.78rem;color:var(--brand);display:none"></div>
+      <div class="form-row"><label>Vet / clinic</label><input id="vVet" value="${edit ? U.esc(vac.vet || '') : ''}" placeholder="Dr. Smith" /></div>
     `,
-        actions: [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
+        actions: edit
+          ? [{ label: 'Cancel', v: false }, { label: 'Delete', kind: 'danger', v: 'delete' }, { label: 'Save', kind: 'primary', v: true }]
+          : [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
+        onOpen: (b) => {
+          const defSel = b.querySelector('#vDef');
+          const customRow = b.querySelector('#vCustomNameRow');
+          const infoRow = b.querySelector('#vInfoRow');
+          const suggestRow = b.querySelector('#vSuggestRow');
+          const lastInput = b.querySelector('#vLast');
+          const nextInput = b.querySelector('#vNext');
+          let userEditedNext = !!vac?.nextDue; // don't clobber a manually-set date on open
+
+          const refreshInfo = () => {
+            const def = findVaccineDef(defSel.value);
+            customRow.style.display = def?.id === 'custom' ? '' : 'none';
+            infoRow.textContent = def ? (def.core ? '🛡️ ' : 'ℹ️ ') + def.info : '';
+          };
+          const refreshSuggestion = () => {
+            const def = findVaccineDef(defSel.value);
+            const suggestion = suggestVaccineNextDue(def, lastInput.value, pet?.birthday);
+            if (suggestion && !userEditedNext) {
+              nextInput.value = suggestion.date;
+              suggestRow.style.display = '';
+              suggestRow.textContent = `✨ Suggested per standard protocol: ${suggestion.rationale} You can override this date.`;
+            } else if (suggestion) {
+              suggestRow.style.display = '';
+              suggestRow.textContent = `ℹ️ Standard protocol would suggest ${U.fmtDate(suggestion.date)}. ${suggestion.rationale}`;
+            } else {
+              suggestRow.style.display = 'none';
+            }
+          };
+
+          defSel.onchange = () => { userEditedNext = false; refreshInfo(); refreshSuggestion(); };
+          lastInput.onchange = () => { userEditedNext = false; refreshSuggestion(); };
+          nextInput.onchange = () => { userEditedNext = true; };
+
+          refreshInfo(); refreshSuggestion();
+
+          b._save = async () => {
+            const def = findVaccineDef(defSel.value);
+            const name = def?.id === 'custom' ? b.querySelector('#vCustomName').value.trim() : def?.name;
+            if (!name || !S.activePetId) { U.toast('Vaccine name & active pet required', 'error'); return false; }
+            const data = {
+              id: vac?.id || U.id(), petId: S.activePetId, name,
+              lastGiven: lastInput.value,
+              nextDue: nextInput.value,
+              vet: b.querySelector('#vVet').value.trim(),
+              core: !!def?.core,
+              createdAt: vac?.createdAt || Date.now()
+            };
+            await DB.put('vaccinations', data);
+            await loadAll(); renderHealth();
+            U.toast(edit ? 'Vaccination updated' : 'Vaccination saved', 'success');
+            return true;
+          };
+        },
         onAction: async (v, close, b) => {
           if (!v) return close();
-          const name = b.querySelector('#vName').value.trim();
-          if (!name || !S.activePetId) return U.toast('Name & active pet required', 'error');
-          await DB.put('vaccinations', {
-            id: U.id(), petId: S.activePetId, name,
-            lastGiven: b.querySelector('#vLast').value,
-            nextDue: b.querySelector('#vNext').value,
-            vet: b.querySelector('#vVet').value.trim(),
-            createdAt: Date.now()
-          });
-          await loadAll(); renderHealth(); close(); U.toast('Vaccination saved', 'success');
+          if (v === 'delete') {
+            if (await U.confirm('Remove vaccination?', 'This removes the vaccination record.')) {
+              await DB.del('vaccinations', vac.id); await loadAll(); renderHealth(); close();
+            }
+            return;
+          }
+          if (await b._save()) close();
         }
       });
     }
-    function openWeightModal() {
+    function openWeightModal(w) {
+      const edit = !!w;
       openModal({
-        title: 'Log weight',
+        title: edit ? 'Edit weight entry' : 'Log weight',
         body: `
-      <div class="form-row"><label>Date</label><input type="date" id="wDate" value="${new Date().toISOString().slice(0, 10)}" /></div>
+      <div class="form-row"><label>Date</label><input type="date" id="wDate" value="${w ? new Date(w.ts).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}" /></div>
       <div class="form-grid">
-        <div class="form-row"><label>Weight *</label><input type="number" step="0.1" id="wVal" placeholder="12.5" /></div>
-        <div class="form-row"><label>Unit</label><select id="wUnit"><option ${(S.settings.weightUnit||'kg')==='kg'?'selected':''}>kg</option><option ${(S.settings.weightUnit||'kg')==='lbs'?'selected':''}>lbs</option></select></div>
+        <div class="form-row"><label>Weight *</label><input type="number" step="0.1" id="wVal" value="${w ? w.value : ''}" placeholder="12.5" /></div>
+        <div class="form-row"><label>Unit</label><select id="wUnit"><option ${(w?.unit || S.settings.weightUnit || 'kg') === 'kg' ? 'selected' : ''}>kg</option><option ${(w?.unit || S.settings.weightUnit || 'kg') === 'lbs' ? 'selected' : ''}>lbs</option></select></div>
       </div>
-      <div class="form-row"><label>Note</label><input id="wNote" placeholder="After vet visit" /></div>
+      <div class="form-row"><label>Note</label><input id="wNote" value="${edit ? U.esc(w.note || '') : ''}" placeholder="After vet visit" /></div>
     `,
-        actions: [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
+        actions: edit
+          ? [{ label: 'Cancel', v: false }, { label: 'Delete', kind: 'danger', v: 'delete' }, { label: 'Save', kind: 'primary', v: true }]
+          : [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
         onAction: async (v, close, b) => {
           if (!v) return close();
+          if (v === 'delete') {
+            if (await U.confirm('Remove weight entry?', 'This removes the logged weight.')) {
+              await DB.del('weights', w.id); await loadAll(); renderHealth(); close();
+            }
+            return;
+          }
           const val = b.querySelector('#wVal').value;
           if (!val || !S.activePetId) return U.toast('Weight & active pet required', 'error');
           await DB.put('weights', {
-            id: U.id(), petId: S.activePetId, ts: new Date(b.querySelector('#wDate').value).getTime(),
+            id: w?.id || U.id(), petId: S.activePetId, ts: new Date(b.querySelector('#wDate').value).getTime(),
             value: U.safeNum(val), unit: b.querySelector('#wUnit').value, note: b.querySelector('#wNote').value.trim()
           });
-          await loadAll(); renderHealth(); close(); U.toast('Weight logged', 'success');
+          await loadAll(); renderHealth(); close(); U.toast(edit ? 'Weight entry updated' : 'Weight logged', 'success');
         }
       });
     }
-    function openNoteModal() {
+    function openNoteModal(note) {
+      const edit = !!note;
       openModal({
-        title: 'Add note / vet visit',
+        title: edit ? 'Edit note / vet visit' : 'Add note / vet visit',
         body: `
-      <div class="form-row"><label>Title *</label><input id="nTitle" placeholder="Vet check-up" /></div>
-      <div class="form-row"><label>Date</label><input type="date" id="nDate" value="${new Date().toISOString().slice(0, 10)}" /></div>
-      <div class="form-row"><label>Details</label><textarea id="nBody" placeholder="Everything is looking healthy…"></textarea></div>
+      <div class="form-row"><label>Title *</label><input id="nTitle" value="${edit ? U.esc(note.title || '') : ''}" placeholder="Vet check-up" /></div>
+      <div class="form-row"><label>Date</label><input type="date" id="nDate" value="${note ? new Date(note.ts).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}" /></div>
+      <div class="form-row"><label>Details</label><textarea id="nBody" placeholder="Everything is looking healthy…">${edit ? U.esc(note.body || '') : ''}</textarea></div>
     `,
-        actions: [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
+        actions: edit
+          ? [{ label: 'Cancel', v: false }, { label: 'Delete', kind: 'danger', v: 'delete' }, { label: 'Save', kind: 'primary', v: true }]
+          : [{ label: 'Cancel', v: false }, { label: 'Add', kind: 'primary', v: true }],
         onAction: async (v, close, b) => {
           if (!v) return close();
+          if (v === 'delete') {
+            if (await U.confirm('Remove note?', 'This removes the note / vet visit record.')) {
+              await DB.del('notes', note.id); await loadAll(); renderHealth(); close();
+            }
+            return;
+          }
           const t = b.querySelector('#nTitle').value.trim();
           if (!t || !S.activePetId) return U.toast('Title & active pet required', 'error');
           await DB.put('notes', {
-            id: U.id(), petId: S.activePetId, title: t,
+            id: note?.id || U.id(), petId: S.activePetId, title: t,
             body: b.querySelector('#nBody').value.trim(),
             ts: new Date(b.querySelector('#nDate').value).getTime()
           });
-          await loadAll(); renderHealth(); close(); U.toast('Note added', 'success');
+          await loadAll(); renderHealth(); close(); U.toast(edit ? 'Note updated' : 'Note added', 'success');
         }
       });
     }
